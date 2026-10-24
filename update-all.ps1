@@ -42,13 +42,15 @@ param(
 $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"")
-    foreach ($key in $PSBoundParameters.Keys) { $argList += "-$key" }   # nur Switch-Parameter
+    foreach ($key in $PSBoundParameters.Keys) {
+        if ($PSBoundParameters[$key]) { $argList += "-$key" }   # nur gesetzte Switch-Parameter
+    }
     try {
         Start-Process -FilePath (Get-Process -Id $PID).Path -Verb RunAs -ArgumentList $argList
         exit 0
     }
     catch {
-        Write-Host 'Adminrechte wurden nicht erteilt – Abbruch.' -ForegroundColor Red
+        Write-Host 'Adminrechte wurden nicht erteilt - Abbruch.' -ForegroundColor Red
         if (-not $NoPause -and [Environment]::UserInteractive) {
             Read-Host 'Enter zum Beenden' | Out-Null
         }
@@ -202,11 +204,16 @@ try {
         Write-Host "`nNach dem Lauf noch offen:" -ForegroundColor Cyan
         winget upgrade --disable-interactivity --accept-source-agreements | Out-Host
 
-        if ($wingetExit -ne 0) {
-            Set-StepResult 'Warnung' ('teilweise fehlgeschlagen (Exitcode 0x{0:X8}) – Liste oben prüfen' -f $wingetExit)
+        # 0x8A15002B (-1978335189) = APPINSTALLER_CLI_ERROR_UPDATE_NOT_APPLICABLE:
+        # "kein anwendbares Update gefunden" - also nichts zu tun, kein Fehler.
+        if ($wingetExit -eq -1978335189) {
+            Set-StepResult 'OK' 'keine Updates gefunden'
+        }
+        elseif ($wingetExit -ne 0) {
+            Set-StepResult 'Warnung' ('teilweise fehlgeschlagen (Exitcode 0x{0:X8}) - Liste oben prüfen' -f $wingetExit)
         }
         elseif ($sourceExit -ne 0) {
-            Set-StepResult 'Warnung' ('Quellen-Aktualisierung fehlgeschlagen (Exitcode 0x{0:X8}) – evtl. nicht alle Updates erkannt' -f $sourceExit)
+            Set-StepResult 'Warnung' ('Quellen-Aktualisierung fehlgeschlagen (Exitcode 0x{0:X8}) - evtl. nicht alle Updates erkannt' -f $sourceExit)
         }
     }
 
@@ -232,12 +239,12 @@ try {
     Write-Host "`n== Zusammenfassung ==" -ForegroundColor Cyan
     foreach ($name in $results.Keys) {
         $r    = $results[$name]
-        $text = if ($r.Note) { '{0} – {1}' -f $r.Status, $r.Note } else { $r.Status }
+        $text = if ($r.Note) { '{0} - {1}' -f $r.Status, $r.Note } else { $r.Status }
         Write-Host ('{0,-26} {1}' -f $name, $text) -ForegroundColor $colors[$r.Status]
     }
 
     if ($rebootNeeded) {
-        Write-Host "`nNeustart ausstehend – bitte neu starten, um die Updates abzuschließen." -ForegroundColor Yellow
+        Write-Host "`nNeustart ausstehend - bitte neu starten, um die Updates abzuschließen." -ForegroundColor Yellow
     } else {
         Write-Host "`nKein Neustart-Hinweis von Windows Update gefunden." -ForegroundColor Green
     }
