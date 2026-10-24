@@ -227,7 +227,16 @@ try {
         # Kontrolle: Was ist nach dem Lauf noch offen (fehlgeschlagene oder blockierte Pakete)?
         # Nur zur Information; "| Out-Host" sorgt dafür, dass die Liste auch im Log landet.
         Write-Host "`nNach dem Lauf noch offen:" -ForegroundColor Cyan
-        winget upgrade --disable-interactivity --accept-source-agreements | Out-Host
+        # Weitergeleitet liefert winget UTF-8; ohne Umstellung zeigt PowerShell 5.1
+        # Umlaute als "├╝" an. Danach wird die ursprüngliche Codierung wiederhergestellt.
+        $prevEncoding = [Console]::OutputEncoding
+        try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch { }
+        try {
+            winget upgrade --disable-interactivity --accept-source-agreements | Out-Host
+        }
+        finally {
+            try { [Console]::OutputEncoding = $prevEncoding } catch { }
+        }
 
         # 0x8A15002B (-1978335189) = APPINSTALLER_CLI_ERROR_UPDATE_NOT_APPLICABLE:
         # "kein anwendbares Update gefunden" - also nichts zu tun, kein Fehler.
