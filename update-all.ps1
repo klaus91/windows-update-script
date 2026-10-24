@@ -1,18 +1,195 @@
-Write-Host "== Programme (winget) ==" -ForegroundColor Cyan
-winget upgrade --all --include-unknown --accept-package-agreements --accept-source-agreements
+﻿#Requires -Version 5.1
+<#
+.SYNOPSIS
+    Aktualisiert Programme (winget), Store-Apps, Defender-Signaturen und Windows Updates.
 
-Write-Host "== Microsoft Store Apps ==" -ForegroundColor Cyan
-Get-CimInstance -Namespace "Root\cimv2\mdm\dmmap" -ClassName "MDM_EnterpriseModernAppManagement_AppManagement01" | Invoke-CimMethod -MethodName UpdateScanMethod
+.PARAMETER IncludeDrivers
+    Treiber-Updates über Windows Update mitinstallieren (Standard: aus).
 
-Write-Host "== Defender-Signaturen ==" -ForegroundColor Cyan
-Update-MpSignature
+.PARAMETER IncludeUnknown
+    winget-Pakete mit unbekannter Version einbeziehen (kann zu Dauer-"Updates" führen).
 
-Write-Host "== Windows Update ==" -ForegroundColor Cyan
-if (-not (Get-Module -ListAvailable PSWindowsUpdate)) {
-    Install-Module PSWindowsUpdate -Force -Scope CurrentUser
+.PARAMETER CreateRestorePoint
+    Vorher einen Wiederherstellungspunkt anlegen (nur Windows PowerShell 5.1,
+    Systemwiederherstellung muss aktiv sein; standardmäßig max. 1 Punkt pro 24 h).
+
+.PARAMETER NoPause
+    Am Ende nicht auf Enter warten (für geplante Aufgaben).
+
+.NOTES
+    Datei als UTF-8 MIT BOM speichern, sonst zeigt Windows PowerShell 5.1 Umlaute falsch an.
+
+    Pakete, die sich selbst aktualisieren oder mit Adminrechten nicht installierbar sind,
+    einmalig von "winget upgrade --all" ausnehmen, z. B.:
+        winget pin add --id Spotify.Spotify
+        winget pin add --id Microsoft.Edge
+#>
+[CmdletBinding()]
+param(
+    [switch]$IncludeDrivers,
+    [switch]$IncludeUnknown,
+    [switch]$CreateRestorePoint,
+    [switch]$NoPause
+)
+
+# --- Selbst-Erhöhung: startet sich mit Adminrechten neu (UAC-Abfrage) -------
+# Statt "#Requires -RunAsAdministrator": dort würde sich das Fenster beim Start
+# über eine Verknüpfung ohne Adminrechte sofort kommentarlos wieder schließen.
+$principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
+if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"")
+    foreach ($key in $PSBoundParameters.Keys) { $argList += "-$key" }   # nur Switch-Parameter
+    try {
+        Start-Process -FilePath (Get-Process -Id $PID).Path -Verb RunAs -ArgumentList $argList
+    }
+    catch {
+        Write-Host 'Adminrechte wurden nicht erteilt – Abbruch.' -ForegroundColor Red
+        Read-Host 'Enter zum Beenden' | Out-Null
+    }
+    exit
 }
-Import-Module PSWindowsUpdate
-Get-WindowsUpdate -MicrosoftUpdate -Install -AcceptAll -IgnoreReboot
 
-Write-Host "Fertig! Ggf. neu starten." -ForegroundColor Green
-Pause
+$ErrorActionPreference = 'Stop'
+
+# --- Logging -----------------------------------------------------------------
+$logDir  = Join-Path $env:ProgramData 'UpdateScript\Logs'
+New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+$logFile = Join-Path $logDir ('Update_{0:yyyy-MM-dd_HH-mm-ss}.log' -f (Get-Date))
+Start-Transcript -Path $logFile | Out-Null
+
+$results = [ordered]@{}
+
+function Invoke-Step {
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][scriptblock]$Action
+    )
+    Write-Host "`n== $Name ==" -ForegroundColor Cyan
+    $script:StepNote = $null
+    try {
+        & $Action
+        $results[$Name] = if ($script:StepNote) { $script:StepNote } else { 'OK' }
+    }
+    catch {
+        Write-Warning "$Name fehlgeschlagen: $($_.Exception.Message)"
+        $results[$Name] = "FEHLER: $($_.Exception.Message)"
+    }
+}
+
+# --- Wiederherstellungspunkt (optional) --------------------------------------
+if ($CreateRestorePoint) {
+    Invoke-Step 'Wiederherstellungspunkt' {
+        if (-not (Get-Command Checkpoint-Computer -ErrorAction SilentlyContinue)) {
+            $script:StepNote = 'Übersprungen: nur in Windows PowerShell 5.1 verfügbar'
+            return
+        }
+        Checkpoint-Computer -Description 'Vor Update-Script' -RestorePointType MODIFY_SETTINGS
+    }
+}
+
+# --- Windows Update ----------------------------------------------------------
+Invoke-Step 'Windows Update' {
+    if (-not (Get-Module -ListAvailable -Name PSWindowsUpdate)) {
+        # Ältere 5.1-Installationen sprechen sonst kein TLS 1.2 mit der PowerShell Gallery
+        [Net.ServicePointManager]::SecurityProtocol =
+            [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+
+        if (-not (Get-PackageProvider -ListAvailable -Name NuGet -ErrorAction SilentlyContinue)) {
+            Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Scope AllUsers -Force | Out-Null
+        }
+        # AllUsers statt CurrentUser: landet nicht im (evtl. OneDrive-synchronisierten) Admin-Profil
+        Install-Module -Name PSWindowsUpdate -Repository PSGallery -Scope AllUsers -Force
+    }
+    Import-Module PSWindowsUpdate
+
+    $wuParams = @{
+        MicrosoftUpdate = $true   # auch Office, .NET, PowerShell 7 usw.
+        Install         = $true
+        AcceptAll       = $true
+        IgnoreReboot    = $true
+        NotTitle        = 'Preview|Vorschau'   # keine optionalen Vorschau-Updates
+    }
+    if (-not $IncludeDrivers) { $wuParams.UpdateType = 'Software' }
+
+    Get-WindowsUpdate @wuParams
+}
+
+# --- Defender-Signaturen -----------------------------------------------------
+Invoke-Step 'Defender-Signaturen' {
+    $mp = Get-MpComputerStatus -ErrorAction SilentlyContinue
+    if (-not $mp -or -not $mp.AMServiceEnabled) {
+        $script:StepNote = 'Übersprungen: Microsoft Defender ist nicht aktiv'
+        return
+    }
+    Update-MpSignature
+}
+
+# --- Programme (winget) ------------------------------------------------------
+Invoke-Step 'Programme (winget)' {
+    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+        $script:StepNote = 'Übersprungen: winget nicht gefunden (App Installer fehlt)'
+        return
+    }
+    winget source update --disable-interactivity | Out-Null
+
+    $wingetArgs = @(
+        'upgrade', '--all',
+        '--silent', '--disable-interactivity',
+        '--accept-package-agreements', '--accept-source-agreements'
+    )
+    if ($IncludeUnknown) { $wingetArgs += '--include-unknown' }
+
+    winget @wingetArgs
+    $wingetExit = $LASTEXITCODE
+
+    # Kontrolle: Was ist nach dem Lauf noch offen (fehlgeschlagene oder blockierte Pakete)?
+    # "| Out-Host" sorgt dafür, dass die Liste auch im Transcript landet.
+    Write-Host "`nNach dem Lauf noch offen:" -ForegroundColor Cyan
+    winget upgrade --disable-interactivity --accept-source-agreements | Out-Host
+
+    if ($wingetExit -ne 0) {
+        $script:StepNote = 'Teilweise fehlgeschlagen (Exitcode 0x{0:X8}) – Liste oben prüfen' -f $wingetExit
+    }
+}
+
+# --- Microsoft Store Apps ----------------------------------------------------
+Invoke-Step 'Microsoft Store Apps' {
+    $r = Get-CimInstance -Namespace 'root\cimv2\mdm\dmmap' `
+                         -ClassName 'MDM_EnterpriseModernAppManagement_AppManagement01' |
+         Invoke-CimMethod -MethodName UpdateScanMethod
+    if ($r.ReturnValue -ne 0) { throw "UpdateScanMethod lieferte ReturnValue $($r.ReturnValue)" }
+    $script:StepNote = 'OK (Scan angestoßen, Updates laufen im Hintergrund weiter)'
+}
+
+# --- Neustart nötig? ---------------------------------------------------------
+$rebootKeys = @(
+    'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired',
+    'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending'
+)
+$rebootNeeded = [bool]($rebootKeys | Where-Object { Test-Path $_ })
+
+# --- Zusammenfassung ---------------------------------------------------------
+Write-Host "`n== Zusammenfassung ==" -ForegroundColor Cyan
+foreach ($name in $results.Keys) {
+    $status = $results[$name]
+    $color  = if ($status -like 'FEHLER*') { 'Red' }
+              elseif ($status -like 'OK*') { 'Green' }
+              else { 'Yellow' }
+    Write-Host ('{0,-26} {1}' -f $name, $status) -ForegroundColor $color
+}
+
+if ($rebootNeeded) {
+    Write-Host "`nNeustart erforderlich, um die Updates abzuschließen." -ForegroundColor Yellow
+} else {
+    Write-Host "`nKein Neustart erforderlich." -ForegroundColor Green
+}
+Write-Host "Log: $logFile"
+
+Stop-Transcript | Out-Null
+
+if (-not $NoPause -and [Environment]::UserInteractive) {
+    Read-Host 'Enter zum Beenden' | Out-Null
+}
+
+$hasErrors = [bool]($results.Values | Where-Object { $_ -like 'FEHLER*' })
+exit ([int]$hasErrors)
