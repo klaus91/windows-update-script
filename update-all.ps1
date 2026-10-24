@@ -20,6 +20,9 @@
 .PARAMETER NoPause
     Am Ende nicht auf Enter warten (für geplante Aufgaben).
 
+.PARAMETER LogRetentionDays
+    Logs, die älter als diese Anzahl Tage sind, werden beim Start gelöscht (Standard: 90).
+
 .NOTES
     Datei als UTF-8 MIT BOM speichern, sonst zeigt Windows PowerShell 5.1 Umlaute falsch an.
 
@@ -33,7 +36,8 @@ param(
     [switch]$IncludeDrivers,
     [switch]$IncludeUnknown,
     [switch]$CreateRestorePoint,
-    [switch]$NoPause
+    [switch]$NoPause,
+    [ValidateRange(1, 3650)][int]$LogRetentionDays = 90
 )
 
 # --- Selbst-Erhöhung: startet sich mit Adminrechten neu (UAC-Abfrage) -------
@@ -42,8 +46,13 @@ param(
 $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"")
-    foreach ($key in $PSBoundParameters.Keys) {
-        if ($PSBoundParameters[$key]) { $argList += "-$key" }   # nur gesetzte Switch-Parameter
+    foreach ($param in $PSBoundParameters.GetEnumerator()) {
+        if ($param.Value -is [switch]) {
+            if ($param.Value) { $argList += "-$($param.Key)" }   # nur gesetzte Switches
+        }
+        else {
+            $argList += "-$($param.Key)", "$($param.Value)"      # z. B. -LogRetentionDays 30
+        }
     }
     try {
         Start-Process -FilePath (Get-Process -Id $PID).Path -Verb RunAs -ArgumentList $argList
@@ -103,6 +112,22 @@ try {
 }
 catch {
     Write-Warning "Protokollierung nicht möglich, es wird ohne Log fortgefahren: $($_.Exception.Message)"
+}
+
+# --- Alte Logs aufräumen -----------------------------------------------------
+if ($logFile) {
+    try {
+        $cutoff  = (Get-Date).AddDays(-$LogRetentionDays)
+        $oldLogs = @(Get-ChildItem -Path (Split-Path $logFile) -Filter 'Update_*.log' -File |
+                     Where-Object { $_.LastWriteTime -lt $cutoff })
+        if ($oldLogs.Count -gt 0) {
+            $oldLogs | Remove-Item -Force
+            Write-Host ('{0} Log(s) älter als {1} Tage gelöscht.' -f $oldLogs.Count, $LogRetentionDays)
+        }
+    }
+    catch {
+        Write-Warning "Alte Logs konnten nicht gelöscht werden: $($_.Exception.Message)"
+    }
 }
 
 $fatalError = $false
