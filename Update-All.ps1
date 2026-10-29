@@ -30,6 +30,8 @@
     einmalig von "winget upgrade --all" ausnehmen, z. B.:
         winget pin add --id Spotify.Spotify
         winget pin add --id Microsoft.Edge
+        winget pin add --id Logitech.GHUB
+        winget pin add --id Ubisoft.Connect
 #>
 [CmdletBinding()]
 param(
@@ -59,7 +61,7 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
         exit 0
     }
     catch {
-        Write-Host 'Adminrechte wurden nicht erteilt - Abbruch.' -ForegroundColor Red
+        Write-Host 'Adminrechte wurden nicht erteilt – Abbruch.' -ForegroundColor Red
         if (-not $NoPause -and [Environment]::UserInteractive) {
             Read-Host 'Enter zum Beenden' | Out-Null
         }
@@ -143,6 +145,48 @@ try {
         }
     }
 
+    # --- Defender-Signaturen -------------------------------------------------
+    # Bewusst VOR Windows Update: Installiert Windows Update gerade selbst ein
+    # Signatur-Update, scheitert Update-MpSignature direkt danach oft mit
+    # "Der Remoteprozeduraufruf ist fehlgeschlagen".
+    Invoke-Step 'Defender-Signaturen' {
+        $mp = Get-MpComputerStatus -ErrorAction SilentlyContinue
+        if (-not $mp -or -not $mp.AMServiceEnabled) {
+            Set-StepResult 'Übersprungen' 'Microsoft Defender ist nicht aktiv'
+            return
+        }
+
+        $lastError = $null
+        for ($try = 1; $try -le 3; $try++) {
+            try {
+                Update-MpSignature
+                $lastError = $null
+                break
+            }
+            catch {
+                $lastError = $_.Exception.Message
+                if ($try -lt 3) {
+                    Write-Host "Versuch $try fehlgeschlagen ($lastError) – neuer Versuch in 30 s ..." -ForegroundColor Yellow
+                    Start-Sleep -Seconds 30
+                }
+            }
+        }
+
+        $mp    = Get-MpComputerStatus
+        $stand = 'Version {0} vom {1:dd.MM.yyyy HH:mm}' -f $mp.AntivirusSignatureVersion, $mp.AntivirusSignatureLastUpdated
+
+        if (-not $lastError) {
+            Set-StepResult 'OK' $stand
+        }
+        elseif ($mp.AntivirusSignatureLastUpdated -gt (Get-Date).AddHours(-24)) {
+            # Update-Befehl gescheitert, die Signaturen sind aber trotzdem aktuell
+            Set-StepResult 'OK' "$stand (Update-Befehl gescheitert, Signaturen aber aktuell)"
+        }
+        else {
+            throw $lastError
+        }
+    }
+
     # --- Windows Update ------------------------------------------------------
     Invoke-Step 'Windows Update' {
         if (-not (Get-Module -ListAvailable -Name PSWindowsUpdate)) {
@@ -192,18 +236,6 @@ try {
         }
     }
 
-    # --- Defender-Signaturen -------------------------------------------------
-    Invoke-Step 'Defender-Signaturen' {
-        $mp = Get-MpComputerStatus -ErrorAction SilentlyContinue
-        if (-not $mp -or -not $mp.AMServiceEnabled) {
-            Set-StepResult 'Übersprungen' 'Microsoft Defender ist nicht aktiv'
-            return
-        }
-        Update-MpSignature
-        $mp = Get-MpComputerStatus
-        Set-StepResult 'OK' ('Version {0} vom {1:dd.MM.yyyy HH:mm}' -f
-            $mp.AntivirusSignatureVersion, $mp.AntivirusSignatureLastUpdated)
-    }
 
     # --- Programme (winget) --------------------------------------------------
     Invoke-Step 'Programme (winget)' {
@@ -239,15 +271,15 @@ try {
         }
 
         # 0x8A15002B (-1978335189) = APPINSTALLER_CLI_ERROR_UPDATE_NOT_APPLICABLE:
-        # "kein anwendbares Update gefunden" - also nichts zu tun, kein Fehler.
+        # "kein anwendbares Update gefunden" – also nichts zu tun, kein Fehler.
         if ($wingetExit -eq -1978335189) {
             Set-StepResult 'OK' 'keine Updates gefunden'
         }
         elseif ($wingetExit -ne 0) {
-            Set-StepResult 'Warnung' ('teilweise fehlgeschlagen (Exitcode 0x{0:X8}) - Liste oben prüfen' -f $wingetExit)
+            Set-StepResult 'Warnung' ('teilweise fehlgeschlagen (Exitcode 0x{0:X8}) – Liste oben prüfen' -f $wingetExit)
         }
         elseif ($sourceExit -ne 0) {
-            Set-StepResult 'Warnung' ('Quellen-Aktualisierung fehlgeschlagen (Exitcode 0x{0:X8}) - evtl. nicht alle Updates erkannt' -f $sourceExit)
+            Set-StepResult 'Warnung' ('Quellen-Aktualisierung fehlgeschlagen (Exitcode 0x{0:X8}) – evtl. nicht alle Updates erkannt' -f $sourceExit)
         }
     }
 
@@ -273,12 +305,12 @@ try {
     Write-Host "`n== Zusammenfassung ==" -ForegroundColor Cyan
     foreach ($name in $results.Keys) {
         $r    = $results[$name]
-        $text = if ($r.Note) { '{0} - {1}' -f $r.Status, $r.Note } else { $r.Status }
+        $text = if ($r.Note) { '{0} – {1}' -f $r.Status, $r.Note } else { $r.Status }
         Write-Host ('{0,-26} {1}' -f $name, $text) -ForegroundColor $colors[$r.Status]
     }
 
     if ($rebootNeeded) {
-        Write-Host "`nNeustart ausstehend - bitte neu starten, um die Updates abzuschließen." -ForegroundColor Yellow
+        Write-Host "`nNeustart ausstehend – bitte neu starten, um die Updates abzuschließen." -ForegroundColor Yellow
     } else {
         Write-Host "`nKein Neustart-Hinweis von Windows Update gefunden." -ForegroundColor Green
     }
