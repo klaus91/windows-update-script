@@ -132,7 +132,8 @@ if ($logFile) {
     }
 }
 
-$fatalError = $false
+$fatalError   = $false
+$rebootNeeded = $false
 try {
     # --- Wiederherstellungspunkt (optional) ----------------------------------
     if ($CreateRestorePoint) {
@@ -326,7 +327,24 @@ finally {
     }
 }
 
-if (-not $NoPause -and [Environment]::UserInteractive) {
+$interactive = -not $NoPause -and [Environment]::UserInteractive
+
+if ($interactive -and $rebootNeeded) {
+    Write-Host "`nOffene Programme werden beim Neustart geschlossen – vorher alles speichern." -ForegroundColor Yellow
+    $answer = Read-Host 'Jetzt neu starten? (j/N)'
+    if ($answer -match '^\s*(j|ja|y|yes)\s*$') {
+        try {
+            # Ohne -Force: Programme mit ungespeicherten Daten können den Neustart
+            # noch aufhalten, wie beim Neustart über das Startmenü.
+            Restart-Computer
+        }
+        catch {
+            Write-Host "Neustart nicht möglich: $($_.Exception.Message)" -ForegroundColor Red
+            Read-Host 'Enter zum Beenden' | Out-Null
+        }
+    }
+}
+elseif ($interactive) {
     Read-Host 'Enter zum Beenden' | Out-Null
 }
 
