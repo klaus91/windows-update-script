@@ -61,6 +61,14 @@ Das Modul **PSWindowsUpdate** und der Paketanbieter **NuGet** werden beim ersten
    ```powershell
    Unblock-File C:\Scripts\Update-All.ps1
    ```
+4. **Ausführungsrichtlinie:** Auf Windows-Clients ist sie standardmäßig `Restricted`. Ein direkter Aufruf wie `.\Update-All.ps1` scheitert dann mit *„… da die Ausführung von Skripts auf diesem System deaktiviert ist“*. Es gibt zwei Möglichkeiten:
+   - **Ohne Systemänderung:** Das Script immer über `powershell.exe -NoProfile -ExecutionPolicy Bypass -File …` starten (siehe [Verwendung](#verwendung)).
+   - **Richtlinie für das eigene Konto lockern** (ohne Adminrechte möglich), danach funktioniert auch der direkte Aufruf:
+     ```powershell
+     Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+     ```
+
+   Gibt eine Gruppenrichtlinie die Ausführungsrichtlinie vor, ist nur die erste Möglichkeit nutzbar. Der Neustart mit Adminrechten setzt immer `-ExecutionPolicy Bypass`, die Richtlinie betrifft also nur den ersten Aufruf.
 
 ## Verwendung
 
@@ -72,7 +80,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Scripts\Update-All.p
 
 Ohne Adminrechte gestartet, öffnet sich eine UAC-Abfrage und das Script startet sich in einem neuen, erhöhten Fenster neu. Alle angegebenen Parameter werden dabei übernommen.
 
-**Beispiele:**
+**Beispiele** (der direkte Aufruf mit `.\` setzt die Ausführungsrichtlinie `RemoteSigned` voraus, siehe [Installation](#installation), Schritt 4):
 
 ```powershell
 # Mit Treibern und vorherigem Wiederherstellungspunkt
