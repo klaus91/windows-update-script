@@ -126,12 +126,12 @@ Scheitert ein Schritt, wird er als *Fehler* markiert und das Script fährt mit d
 
 ```
 == Zusammenfassung ==
-Defender-Signaturen        OK – Version 1.421.1234.0 vom 18.11.2026 17:55
-Windows Update             OK – 2 Update(s) installiert
-Programme (winget)         Warnung – teilweise fehlgeschlagen (Exitcode 0x8A150011) – Liste oben prüfen
-Microsoft Store Apps       OK – Scan angestoßen, Updates laufen im Hintergrund weiter
+Defender-Signaturen        OK - Version 1.421.1234.0 vom 18.11.2026 17:55
+Windows Update             OK - 2 Update(s) installiert
+Programme (winget)         Warnung - teilweise fehlgeschlagen (Exitcode 0x8A150011) - Liste oben prüfen
+Microsoft Store Apps       OK - Scan angestoßen, Updates laufen im Hintergrund weiter
 
-Neustart ausstehend – bitte neu starten, um die Updates abzuschließen.
+Neustart ausstehend - bitte neu starten, um die Updates abzuschließen.
 ```
 
 *(Werte beispielhaft.)*
@@ -493,7 +493,7 @@ Richtlinien:
 | Umlaute werden als `Ã¤` o. Ä. angezeigt | Datei als **UTF-8 mit BOM** speichern. |
 | „Die Ausführung von Skripts ist auf diesem System deaktiviert“ | Mit `-ExecutionPolicy Bypass` starten (siehe [Verwendung](#verwendung)) oder `Unblock-File` ausführen. |
 | Fenster schließt sich sofort | Über eine Verknüpfung mit dem vollständigen `powershell.exe …`-Aufruf starten, nicht per Doppelklick auf die `.ps1`. |
-| „Adminrechte wurden nicht erteilt – Abbruch.“ | UAC-Abfrage wurde abgelehnt – erneut starten und bestätigen. |
+| „Adminrechte wurden nicht erteilt - Abbruch.“ | UAC-Abfrage wurde abgelehnt – erneut starten und bestätigen. |
 | Windows Update: Fehler bei der Installation von PSWindowsUpdate | Internetverbindung und Proxy prüfen; ggf. einmal manuell `Install-Module PSWindowsUpdate -Scope AllUsers` ausführen. |
 | Wiederherstellungspunkt *Übersprungen* | Script läuft unter PowerShell 7 – mit `powershell.exe` (5.1) statt `pwsh.exe` starten. |
 | Wiederherstellungspunkt *Fehler* | Systemwiederherstellung für Laufwerk C: aktivieren (`sysdm.cpl` → Computerschutz). |
