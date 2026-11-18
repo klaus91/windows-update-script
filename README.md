@@ -128,7 +128,7 @@ Scheitert ein Schritt, wird er als *Fehler* markiert und das Script fährt mit d
 == Zusammenfassung ==
 Defender-Signaturen        OK - Version 1.421.1234.0 vom 18.11.2026 17:55
 Windows Update             OK - 2 Update(s) installiert
-Programme (winget)         Warnung - teilweise fehlgeschlagen (Exitcode 0x8A150011) - Liste oben prüfen
+Programme (winget)         Warnung - teilweise fehlgeschlagen (Exitcode 0x8A15002C) - Liste oben prüfen
 Microsoft Store Apps       OK - Scan angestoßen, Updates laufen im Hintergrund weiter
 
 Neustart ausstehend - bitte neu starten, um die Updates abzuschließen.
@@ -252,7 +252,7 @@ Die Fehlerbehandlung ist dreistufig:
 4. Ausgaben, die sonst direkt an die Konsole gingen, werden gezielt mit `| Out-Host` durch PowerShell geleitet, damit sie im Transcript landen.
 5. Das Transcript endet im `finally` des Hauptteils, **vor** der interaktiven Neustart-Abfrage.
 
-Schlägt das Anlegen des Logs fehl, läuft das Script ohne Log weiter (`$transcriptStarted = $false`), und die Aufräumroutine wird übersprungen.
+Schlägt das Anlegen des Logs fehl (Ordner, Pfad oder `Start-Transcript`), läuft das Script ohne Log weiter (`$transcriptStarted = $false`), und die Aufräumroutine wird übersprungen.
 
 ### 5. Die einzelnen Schritte
 
@@ -288,7 +288,7 @@ Bewertet wird also das eigentliche Ziel – **aktuelle Signaturen** – und nich
 **Bereitstellung des Moduls** (nur wenn PSWindowsUpdate noch nicht installiert ist):
 
 1. TLS 1.2 wird für den Prozess **zusätzlich** zu den vorhandenen Protokollen aktiviert (bitweises ODER). Ältere 5.1-Installationen können sich sonst nicht mit der PowerShell Gallery verbinden.
-2. Fehlt der NuGet-Paketanbieter (≥ 2.8.5.201), wird er für alle Benutzer installiert.
+2. Fehlt der NuGet-Paketanbieter oder ist er älter als 2.8.5.201, wird er für alle Benutzer installiert.
 3. PSWindowsUpdate wird mit `-Scope AllUsers` installiert, also unter `C:\Program Files\…\Modules` statt im Benutzerprofil. So landet es nicht in einem möglicherweise per OneDrive synchronisierten Dokumente-Ordner.
 
 **Suche und Installation** über `Get-WindowsUpdate` mit:
@@ -315,7 +315,7 @@ Bewertet wird also das eigentliche Ziel – **aktuelle Signaturen** – und nich
 1. **Vorprüfung:** `winget` nicht im Pfad → *Übersprungen*.
 2. **Quellen aktualisieren:** `winget source update`; der Exitcode wird gemerkt.
 3. **Upgrade:** `winget upgrade --all --silent --disable-interactivity --accept-package-agreements --accept-source-agreements`, optional mit `--include-unknown`. Gepinnte Pakete werden von `--all` nicht angefasst.
-4. **Kontrollliste:** Ein zweiter Aufruf `winget upgrade` zeigt, was danach noch offen ist. Weil winget in eine Pipeline UTF-8 schreibt, wird `[Console]::OutputEncoding` dafür kurz auf UTF-8 umgestellt und im `finally` zuverlässig zurückgesetzt. Sonst erschienen Umlaute in Windows PowerShell 5.1 als `├╝`.
+4. **Kontrollliste:** Ein zweiter Aufruf `winget upgrade` zeigt, was danach noch offen ist; mit `-IncludeUnknown` wird `--include-unknown` auch hier übergeben. Weil winget in eine Pipeline UTF-8 schreibt, wird `[Console]::OutputEncoding` dafür kurz auf UTF-8 umgestellt und im `finally` zuverlässig zurückgesetzt. Sonst erschienen Umlaute in Windows PowerShell 5.1 als `├╝`.
 
 **Auswertung** (in dieser Reihenfolge):
 
@@ -491,7 +491,7 @@ Richtlinien:
 | Problem | Lösung |
 |---|---|
 | Umlaute werden als `Ã¤` o. Ä. angezeigt | Datei als **UTF-8 mit BOM** speichern. |
-| „Die Ausführung von Skripts ist auf diesem System deaktiviert“ | Mit `-ExecutionPolicy Bypass` starten (siehe [Verwendung](#verwendung)) oder `Unblock-File` ausführen. |
+| „… da die Ausführung von Skripts auf diesem System deaktiviert ist“ | Mit `-ExecutionPolicy Bypass` starten (siehe [Verwendung](#verwendung)) oder `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser` setzen (siehe [Installation](#installation), Schritt 4). Bei heruntergeladener Datei zusätzlich `Unblock-File` ausführen. |
 | Fenster schließt sich sofort | Über eine Verknüpfung mit dem vollständigen `powershell.exe …`-Aufruf starten, nicht per Doppelklick auf die `.ps1`. |
 | „Adminrechte wurden nicht erteilt - Abbruch.“ | UAC-Abfrage wurde abgelehnt – erneut starten und bestätigen. |
 | Windows Update: Fehler bei der Installation von PSWindowsUpdate | Internetverbindung und Proxy prüfen; ggf. einmal manuell `Install-Module PSWindowsUpdate -Scope AllUsers` ausführen. |
