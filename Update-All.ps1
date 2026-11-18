@@ -18,7 +18,7 @@
     Systemwiederherstellung muss aktiv sein; standardmäßig max. 1 Punkt pro 24 h).
 
 .PARAMETER NoPause
-    Am Ende nicht auf Enter warten (für geplante Aufgaben).
+    Am Ende nicht auf Enter warten und keinen Neustart anbieten (für geplante Aufgaben).
 
 .PARAMETER LogRetentionDays
     Logs, die älter als diese Anzahl Tage sind, werden beim Start gelöscht (Standard: 90).
@@ -117,7 +117,7 @@ catch {
 }
 
 # --- Alte Logs aufräumen -----------------------------------------------------
-if ($logFile) {
+if ($transcriptStarted) {
     try {
         $cutoff  = (Get-Date).AddDays(-$LogRetentionDays)
         $oldLogs = @(Get-ChildItem -Path (Split-Path $logFile) -Filter 'Update_*.log' -File |
@@ -195,7 +195,9 @@ try {
             [Net.ServicePointManager]::SecurityProtocol =
                 [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
-            if (-not (Get-PackageProvider -ListAvailable -Name NuGet -ErrorAction SilentlyContinue)) {
+            # Fehlt NuGet oder ist die Version zu alt, wird er (neu) installiert
+            if (-not (Get-PackageProvider -ListAvailable -Name NuGet -ErrorAction SilentlyContinue |
+                      Where-Object Version -ge '2.8.5.201')) {
                 Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Scope AllUsers -Force | Out-Null
             }
             # AllUsers statt CurrentUser: landet nicht im (evtl. OneDrive-synchronisierten) Admin-Profil
@@ -264,8 +266,11 @@ try {
         # Umlaute als "├╝" an. Danach wird die ursprüngliche Codierung wiederhergestellt.
         $prevEncoding = [Console]::OutputEncoding
         try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch { }
+        # --include-unknown auch hier, sonst fehlen diese Pakete in der Kontrollliste
+        $listArgs = @('upgrade', '--disable-interactivity', '--accept-source-agreements')
+        if ($IncludeUnknown) { $listArgs += '--include-unknown' }
         try {
-            winget upgrade --disable-interactivity --accept-source-agreements | Out-Host
+            winget @listArgs | Out-Host
         }
         finally {
             try { [Console]::OutputEncoding = $prevEncoding } catch { }
